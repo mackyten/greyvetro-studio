@@ -294,6 +294,30 @@ class TimelineClip {
         fadeInFromBlack: fadeInFromBlack,
         fadeOutToBlack: fadeOutToBlack,
       );
+
+  /// Sets (or clears, with `null`) the keyframed Ken Burns pan/zoom. See
+  /// [withCrop] for why this bypasses [copyWith].
+  TimelineClip withMotion(Motion? motion) => TimelineClip(
+        id: id,
+        sourceId: sourceId,
+        startTime: startTime,
+        duration: duration,
+        inPoint: inPoint,
+        outPoint: outPoint,
+        crop: crop,
+        rotation: rotation,
+        position: position,
+        scale: scale,
+        volume: volume,
+        fadeIn: fadeIn,
+        fadeOut: fadeOut,
+        includeAudio: includeAudio,
+        text: text,
+        motion: motion,
+        transitionIn: transitionIn,
+        fadeInFromBlack: fadeInFromBlack,
+        fadeOutToBlack: fadeOutToBlack,
+      );
 }
 
 class Track {

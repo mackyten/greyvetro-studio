@@ -6,7 +6,8 @@
 /// touch the *base* visual track — the lowest-zIndex photo track, found via
 /// [baseVisualTrack] rather than a naive "first photo track" lookup, since a
 /// photo/video track with a *higher* zIndex is an overlay (PiP/logo) layer,
-/// not part of the base concat (see [isOverlayTrack]). The audio track stays
+/// not part of the base concat (see [isOverlayTrack]). [setMotion] (keyframed
+/// Ken Burns pan/zoom) is scoped the same way. The audio track stays
 /// the single voiceover clip untouched, and the caption track is
 /// display-only, rebuilt by [reanchor] to mirror the base track (text
 /// carried over by source scene id, same as the web version).
@@ -242,6 +243,28 @@ Timeline setRotation(Timeline timeline, String clipId, double? rotation) {
   final normalized = (rotation != null && rotation.abs() > 0.01) ? rotation : null;
   final clips = [
     for (final c in track.clips) if (c.id == clipId) c.withRotation(normalized) else c,
+  ];
+  return _withTrackClips(timeline, track, clips);
+}
+
+/// Default Ken Burns keyframes for a freshly enabled motion clip: a gentle
+/// static-to-punched-in zoom, mirroring the web editor's `DEFAULT_MOTION`.
+const defaultMotion = Motion(
+  from: KenBurnsKeyframe(zoom: 1, panX: 0.5, panY: 0.5),
+  to: KenBurnsKeyframe(zoom: 1.3, panX: 0.5, panY: 0.5),
+);
+
+/// Set (or clear, with `null`) a base-track clip's keyframed Ken Burns
+/// pan/zoom. Doesn't re-anchor — motion never touches placement/duration.
+/// Mutually exclusive with static crop/rotation at render time (the backend
+/// compiler ignores those on an animated clip); this only ever touches the
+/// `motion` field itself, so a clip can carry both and just have one win.
+/// Pure.
+Timeline setMotion(Timeline timeline, String clipId, Motion? motion) {
+  final track = baseVisualTrack(timeline);
+  if (track == null || !track.clips.any((c) => c.id == clipId)) return timeline;
+  final clips = [
+    for (final c in track.clips) if (c.id == clipId) c.withMotion(motion) else c,
   ];
   return _withTrackClips(timeline, track, clips);
 }

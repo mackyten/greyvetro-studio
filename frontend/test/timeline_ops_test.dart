@@ -269,6 +269,41 @@ void main() {
     });
   });
 
+  group('setMotion', () {
+    test('sets keyframed motion on the target clip only', () {
+      final t = _seed();
+      final photo = t.trackOfType(TrackType.photo)!.clips;
+      final result = setMotion(t, photo[1].id, defaultMotion);
+      final clips = result.trackOfType(TrackType.photo)!.clips;
+      expect(clips[1].motion, defaultMotion);
+      expect(clips[0].motion, isNull);
+      expect(clips[2].motion, isNull);
+    });
+
+    test('clears back to null', () {
+      final t = _seed();
+      final photo = t.trackOfType(TrackType.photo)!.clips;
+      final withMotion = setMotion(t, photo[0].id, defaultMotion);
+      final result = setMotion(withMotion, photo[0].id, null);
+      expect(result.trackOfType(TrackType.photo)!.clips[0].motion, isNull);
+    });
+
+    test('does not reanchor — sibling placement is untouched', () {
+      final t = _seed();
+      final photo = t.trackOfType(TrackType.photo)!.clips;
+      final before = photo.map((c) => (c.startTime, c.duration)).toList();
+      final result = setMotion(t, photo[1].id, defaultMotion);
+      final after = result.trackOfType(TrackType.photo)!.clips.map((c) => (c.startTime, c.duration)).toList();
+      expect(after, before);
+    });
+
+    test('is a no-op for an unknown clip id', () {
+      final t = _seed();
+      final result = setMotion(t, 'nope', defaultMotion);
+      expect(result, same(t));
+    });
+  });
+
   group('addOverlayImage', () {
     test('adds a track+clip above the base zIndex with defaults registered', () {
       final t = _seed(); // durations [2, 3, 4] -> totalDuration 9
@@ -353,7 +388,7 @@ void main() {
       expect(isOverlayTrack(t, 'overlay-logo-1'), isTrue);
     });
 
-    test('moveClip/trimClip/splitClip/deleteClip/setCrop/setRotation stay scoped to the base track once an overlay exists', () {
+    test('moveClip/trimClip/splitClip/deleteClip/setCrop/setRotation/setMotion stay scoped to the base track once an overlay exists', () {
       final withOverlay = addOverlayImage(_seed(), 'logo-1');
       final overlayBefore = withOverlay.tracks.firstWhere((tr) => tr.id == 'overlay-logo-1').clips.single;
       final basePhoto = withOverlay.trackOfType(TrackType.photo)!.clips;
@@ -382,12 +417,17 @@ void main() {
       expect(rotated.trackOfType(TrackType.photo)!.clips[0].rotation, 15);
       expect(rotated.tracks.firstWhere((tr) => tr.id == 'overlay-logo-1').clips.single, overlayBefore);
 
+      final withMotion = setMotion(withOverlay, basePhoto[0].id, defaultMotion);
+      expect(withMotion.trackOfType(TrackType.photo)!.clips[0].motion, defaultMotion);
+      expect(withMotion.tracks.firstWhere((tr) => tr.id == 'overlay-logo-1').clips.single, overlayBefore);
+
       // And an id that only exists on the overlay track is correctly rejected by every base-only op.
       expect(moveClip(withOverlay, 'overlay-logo-1', basePhoto[0].id), same(withOverlay));
       expect(trimClip(withOverlay, 'overlay-logo-1', 5), same(withOverlay));
       expect(deleteClip(withOverlay, 'overlay-logo-1'), same(withOverlay));
       expect(setCrop(withOverlay, 'overlay-logo-1', cropFromZoomPan(2, 0.5, 0.5)), same(withOverlay));
       expect(setRotation(withOverlay, 'overlay-logo-1', 15), same(withOverlay));
+      expect(setMotion(withOverlay, 'overlay-logo-1', defaultMotion), same(withOverlay));
     });
   });
 }

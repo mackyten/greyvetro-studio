@@ -102,26 +102,54 @@ class _OverlayDrag {
   _OverlayDrag({required this.clipId, required this.x, required this.y, required this.scale});
 }
 
+/// Transient Ken Burns keyframe-drag state — same seed-on-first-touch,
+/// commit-on-release lifecycle as [_TransformDrag], but holding both
+/// keyframes' zoom/pan (6 axes) since a motion clip edits Start and End
+/// together in one inspector.
+class _MotionDrag {
+  final String clipId;
+  double fromZoom;
+  double fromPanX;
+  double fromPanY;
+  double toZoom;
+  double toPanX;
+  double toPanY;
+
+  _MotionDrag({
+    required this.clipId,
+    required this.fromZoom,
+    required this.fromPanX,
+    required this.fromPanY,
+    required this.toZoom,
+    required this.toPanX,
+    required this.toPanY,
+  });
+}
+
 /// Per-project timeline editor (Greyvetro Studio Phase 5, TL Phases 2-3 +
-/// overlay layering): a photo track seeded from the storyboard, editable in
-/// place — select, drag-to-reorder, trim both edges, split at the playhead,
-/// delete (guarded so at least one scene always remains), reframe
-/// (crop/pan/zoom) + tilt a selected scene via the "Reframe" sliders — plus
-/// image overlays (PiP/logo watermarks): added via a file picker, each its
-/// own photo track above the base track's zIndex, positioned/sized via the
-/// "Overlay" sliders and removable as a whole track. A click-to-scrub
-/// playhead and Play/Pause are driven by the shared [AudioPlayer], with a
-/// live preview that swaps the displayed still and caption text as the
-/// playhead moves, approximates the selected base clip's crop/rotation, and
-/// composites any active overlays on top (exact result is the ffmpeg-side
-/// compiler math at export). The audio track stays the single voiceover clip
-/// (untouched by editing) and the caption track is display-only, re-derived
-/// from the base track by source scene id after every structural edit (see
-/// `model/timeline_ops.dart`, which distinguishes the base visual track from
-/// overlay tracks by zIndex throughout). Exports through the backend's
-/// structured-Timeline `/render` path. Mirrors the interaction model of the
-/// web frontend's `TimelineEditor`, scoped to what applies here — no
-/// video/music tracks, overlay trim, motion, or transitions yet.
+/// overlay layering + Ken Burns motion): a photo track seeded from the
+/// storyboard, editable in place — select, drag-to-reorder, trim both edges,
+/// split at the playhead, delete (guarded so at least one scene always
+/// remains), reframe (crop/pan/zoom) + tilt a selected scene via the
+/// "Reframe" sliders, or swap that for animated Start/End Ken Burns keyframes
+/// via "Add motion" (mutually exclusive with the static crop/tilt on the same
+/// clip) — plus image overlays (PiP/logo watermarks): added via a file
+/// picker, each its own photo track above the base track's zIndex,
+/// positioned/sized via the "Overlay" sliders and removable as a whole track.
+/// A click-to-scrub playhead and Play/Pause are driven by the shared
+/// [AudioPlayer], with a live preview that swaps the displayed still and
+/// caption text as the playhead moves, approximates the selected base clip's
+/// crop/rotation (or, for a motion clip, the keyframe lerped to the current
+/// playhead position within it), and composites any active overlays on top
+/// (exact result is the ffmpeg-side compiler math at export). The audio track
+/// stays the single voiceover clip (untouched by editing) and the caption
+/// track is display-only, re-derived from the base track by source scene id
+/// after every structural edit (see `model/timeline_ops.dart`, which
+/// distinguishes the base visual track from overlay tracks by zIndex
+/// throughout). Exports through the backend's structured-Timeline `/render`
+/// path. Mirrors the interaction model of the web frontend's
+/// `TimelineEditor`, scoped to what applies here — no video/music tracks,
+/// overlay trim, or transitions yet.
 class TimelineScreen extends StatefulWidget {
   final ProjectRepository projects;
   final GalleryRepository gallery;
@@ -165,6 +193,7 @@ class TimelineScreenState extends State<TimelineScreen> {
   _TrimDrag? _trim;
   _TransformDrag? _transformDrag;
   _OverlayDrag? _overlayDrag;
+  _MotionDrag? _motionDrag;
 
   // Overlay image bytes keyed by asset id (== clip.sourceId), loaded from
   // TimelineAssetRepository for existing overlays and cached in memory for
@@ -252,6 +281,7 @@ class TimelineScreenState extends State<TimelineScreen> {
         _trim = null;
         _transformDrag = null;
         _overlayDrag = null;
+        _motionDrag = null;
         _overlayImages = {};
         _loading = false;
       });
@@ -304,6 +334,7 @@ class TimelineScreenState extends State<TimelineScreen> {
       _trim = null;
       _transformDrag = null;
       _overlayDrag = null;
+      _motionDrag = null;
       _overlayImages = overlayImages;
       _loading = false;
     });
@@ -344,6 +375,7 @@ class TimelineScreenState extends State<TimelineScreen> {
           _trim = null;
           _transformDrag = null;
           _overlayDrag = null;
+          _motionDrag = null;
         });
       }
     } finally {
@@ -503,6 +535,7 @@ class TimelineScreenState extends State<TimelineScreen> {
       _selectedClipId = (!forceSelect && _selectedClipId == id) ? null : id;
       _transformDrag = null;
       _overlayDrag = null;
+      _motionDrag = null;
     });
   }
 
@@ -565,6 +598,7 @@ class TimelineScreenState extends State<TimelineScreen> {
       _trim = _TrimDrag(clipId: clip.id, isStart: isStart, startDuration: clip.duration);
       _transformDrag = null;
       _overlayDrag = null;
+      _motionDrag = null;
     });
   }
 
@@ -598,6 +632,7 @@ class TimelineScreenState extends State<TimelineScreen> {
         _selectedClipId = null;
         _transformDrag = null;
         _overlayDrag = null;
+        _motionDrag = null;
       });
     }
   }
@@ -615,6 +650,7 @@ class TimelineScreenState extends State<TimelineScreen> {
         _selectedClipId = null;
         _transformDrag = null;
         _overlayDrag = null;
+        _motionDrag = null;
       });
     }
   }
@@ -626,6 +662,7 @@ class TimelineScreenState extends State<TimelineScreen> {
         _selectedClipId = null;
         _transformDrag = null;
         _overlayDrag = null;
+        _motionDrag = null;
       });
     }
   }
@@ -694,6 +731,92 @@ class TimelineScreenState extends State<TimelineScreen> {
     if (mounted) setState(() => _transformDrag = null);
   }
 
+  // --- Motion (Ken Burns pan/zoom) ----------------------------------------
+
+  /// The Start/End keyframe values to render for [clip] right now: the
+  /// in-progress drag shadow if this clip is being adjusted, otherwise
+  /// derived from its committed `motion` (falling back to [defaultMotion] so
+  /// the sliders have something sane to show the instant "Add motion" is
+  /// tapped, before the first commit). Defensively clamped like
+  /// [_effectiveTransform].
+  ({double fromZoom, double fromPanX, double fromPanY, double toZoom, double toPanX, double toPanY})
+      _effectiveMotion(TimelineClip clip) {
+    final drag = _motionDrag;
+    if (drag != null && drag.clipId == clip.id) {
+      return (
+        fromZoom: drag.fromZoom,
+        fromPanX: drag.fromPanX,
+        fromPanY: drag.fromPanY,
+        toZoom: drag.toZoom,
+        toPanX: drag.toPanX,
+        toPanY: drag.toPanY,
+      );
+    }
+    final m = clip.motion ?? defaultMotion;
+    return (
+      fromZoom: _clampD(m.from.zoom, 1, maxZoom),
+      fromPanX: _clampD(m.from.panX, 0, 1),
+      fromPanY: _clampD(m.from.panY, 0, 1),
+      toZoom: _clampD(m.to.zoom, 1, maxZoom),
+      toPanX: _clampD(m.to.panX, 0, 1),
+      toPanY: _clampD(m.to.panY, 0, 1),
+    );
+  }
+
+  /// Starts (or continues) a motion drag for [clip], seeding all six axes
+  /// from its current committed (or default) motion the first time any
+  /// slider moves.
+  _MotionDrag _ensureMotionDrag(TimelineClip clip) {
+    var drag = _motionDrag;
+    if (drag == null || drag.clipId != clip.id) {
+      final m = clip.motion ?? defaultMotion;
+      drag = _MotionDrag(
+        clipId: clip.id,
+        fromZoom: _clampD(m.from.zoom, 1, maxZoom),
+        fromPanX: _clampD(m.from.panX, 0, 1),
+        fromPanY: _clampD(m.from.panY, 0, 1),
+        toZoom: _clampD(m.to.zoom, 1, maxZoom),
+        toPanX: _clampD(m.to.panX, 0, 1),
+        toPanY: _clampD(m.to.panY, 0, 1),
+      );
+      _motionDrag = drag;
+    }
+    return drag;
+  }
+
+  void _onMotionFromZoomChanged(TimelineClip clip, double v) => setState(() => _ensureMotionDrag(clip).fromZoom = v);
+  void _onMotionFromPanXChanged(TimelineClip clip, double v) => setState(() => _ensureMotionDrag(clip).fromPanX = v);
+  void _onMotionFromPanYChanged(TimelineClip clip, double v) => setState(() => _ensureMotionDrag(clip).fromPanY = v);
+  void _onMotionToZoomChanged(TimelineClip clip, double v) => setState(() => _ensureMotionDrag(clip).toZoom = v);
+  void _onMotionToPanXChanged(TimelineClip clip, double v) => setState(() => _ensureMotionDrag(clip).toPanX = v);
+  void _onMotionToPanYChanged(TimelineClip clip, double v) => setState(() => _ensureMotionDrag(clip).toPanY = v);
+
+  /// Commits the in-progress motion drag shadow (if any) for [clip]. Doesn't
+  /// pause playback — like crop/rotation, motion edits never touch clip
+  /// timing.
+  Future<void> _commitMotion(TimelineClip clip) async {
+    final drag = _motionDrag;
+    if (drag == null || drag.clipId != clip.id) return;
+    final motion = Motion(
+      from: KenBurnsKeyframe(zoom: drag.fromZoom, panX: drag.fromPanX, panY: drag.fromPanY),
+      to: KenBurnsKeyframe(zoom: drag.toZoom, panX: drag.toPanX, panY: drag.toPanY),
+    );
+    await _applyEdit((t) => setMotion(t, clip.id, motion));
+    if (mounted) setState(() => _motionDrag = null);
+  }
+
+  /// Enables motion on [clip] with [defaultMotion] — mirrors the web
+  /// editor's "Add motion" chip.
+  Future<void> _addMotion(TimelineClip clip) async {
+    await _applyEdit((t) => setMotion(t, clip.id, defaultMotion));
+    if (mounted) setState(() => _motionDrag = null);
+  }
+
+  Future<void> _removeMotion(TimelineClip clip) async {
+    await _applyEdit((t) => setMotion(t, clip.id, null));
+    if (mounted) setState(() => _motionDrag = null);
+  }
+
   // --- Overlay (PiP/logo) layering ---------------------------------------
 
   /// The position/size to render for overlay [clip] right now — same
@@ -755,6 +878,7 @@ class TimelineScreenState extends State<TimelineScreen> {
         _selectedClipId = 'overlay-$assetId';
         _transformDrag = null;
         _overlayDrag = null;
+        _motionDrag = null;
       });
     }
   }
@@ -1028,14 +1152,30 @@ class TimelineScreenState extends State<TimelineScreen> {
         ? Image.memory(bytes, fit: BoxFit.cover)
         : Center(child: Icon(Icons.image_outlined, size: 20, color: c.text3));
     if (bytes != null && previewClip != null) {
-      final t = _effectiveTransform(previewClip);
-      if (t.zoom > 1.001 || t.rotation.abs() > 0.01) {
-        final origin = FractionalOffset(t.panX, t.panY);
-        image = Transform.rotate(
-          angle: t.rotation * math.pi / 180,
-          alignment: origin,
-          child: Transform.scale(scale: t.zoom, alignment: origin, child: image),
-        );
+      if (previewClip.motion != null) {
+        // Lerp the Ken Burns keyframe by the *actual* playhead position within
+        // the clip (not just while selected+paused) so scrubbing shows the
+        // animation — mirrors the web editor's stage.
+        final m = _effectiveMotion(previewClip);
+        final localT = previewClip.duration > 0
+            ? _clampD((playhead - previewClip.startTime) / previewClip.duration, 0, 1)
+            : 0.0;
+        final zoom = m.fromZoom + (m.toZoom - m.fromZoom) * localT;
+        final panX = m.fromPanX + (m.toPanX - m.fromPanX) * localT;
+        final panY = m.fromPanY + (m.toPanY - m.fromPanY) * localT;
+        if (zoom > 1.001) {
+          image = Transform.scale(scale: zoom, alignment: FractionalOffset(panX, panY), child: image);
+        }
+      } else {
+        final t = _effectiveTransform(previewClip);
+        if (t.zoom > 1.001 || t.rotation.abs() > 0.01) {
+          final origin = FractionalOffset(t.panX, t.panY);
+          image = Transform.rotate(
+            angle: t.rotation * math.pi / 180,
+            alignment: origin,
+            child: Transform.scale(scale: t.zoom, alignment: origin, child: image),
+          );
+        }
       }
     }
 
@@ -1099,8 +1239,7 @@ class TimelineScreenState extends State<TimelineScreen> {
 
   Widget _transformInspector(TimelineClip clip) {
     final c = context.brand;
-    final t = _effectiveTransform(clip);
-    final panEnabled = t.zoom > 1.001;
+    final hasMotion = clip.motion != null;
     final hasFraming = clip.crop != null || clip.rotation != null;
 
     Widget row(String label, Widget slider, {String? value}) => Row(
@@ -1122,30 +1261,76 @@ class TimelineScreenState extends State<TimelineScreen> {
           ],
         );
 
-    return Container(
-      margin: const EdgeInsets.only(top: 10),
-      padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
-      decoration: BoxDecoration(
-        color: c.surfaceMuted,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: c.outline),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
+    Widget keyframeBlock({
+      required String label,
+      required double zoom,
+      required double panX,
+      required double panY,
+      required ValueChanged<double> onZoom,
+      required ValueChanged<double> onPanX,
+      required ValueChanged<double> onPanY,
+    }) =>
+        Padding(
+          padding: const EdgeInsets.only(bottom: 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                'Reframe',
-                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: c.text),
+              Text(label, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: c.text3)),
+              row(
+                'Zoom',
+                Slider(
+                  min: 1,
+                  max: maxZoom,
+                  value: zoom,
+                  onChanged: onZoom,
+                  onChangeEnd: (_) => _commitMotion(clip),
+                ),
+                value: '${zoom.toStringAsFixed(2)}×',
               ),
-              const Spacer(),
-              TextButton(
-                onPressed: hasFraming ? () => _resetFraming(clip) : null,
-                child: const Text('Reset framing'),
+              row(
+                'Pan X',
+                Slider(min: 0, max: 1, value: panX, onChanged: onPanX, onChangeEnd: (_) => _commitMotion(clip)),
+              ),
+              row(
+                'Pan Y',
+                Slider(min: 0, max: 1, value: panY, onChanged: onPanY, onChangeEnd: (_) => _commitMotion(clip)),
               ),
             ],
           ),
+        );
+
+    late final Widget body;
+    if (hasMotion) {
+      final m = _effectiveMotion(clip);
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          keyframeBlock(
+            label: 'Start',
+            zoom: m.fromZoom,
+            panX: m.fromPanX,
+            panY: m.fromPanY,
+            onZoom: (v) => _onMotionFromZoomChanged(clip, v),
+            onPanX: (v) => _onMotionFromPanXChanged(clip, v),
+            onPanY: (v) => _onMotionFromPanYChanged(clip, v),
+          ),
+          keyframeBlock(
+            label: 'End',
+            zoom: m.toZoom,
+            panX: m.toPanX,
+            panY: m.toPanY,
+            onZoom: (v) => _onMotionToZoomChanged(clip, v),
+            onPanX: (v) => _onMotionToPanXChanged(clip, v),
+            onPanY: (v) => _onMotionToPanYChanged(clip, v),
+          ),
+        ],
+      );
+    } else {
+      final t = _effectiveTransform(clip);
+      final panEnabled = t.zoom > 1.001;
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
           row(
             'Zoom',
             Slider(
@@ -1188,6 +1373,44 @@ class TimelineScreenState extends State<TimelineScreen> {
             ),
             value: '${t.rotation.toStringAsFixed(0)}°',
           ),
+        ],
+      );
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+      decoration: BoxDecoration(
+        color: c.surfaceMuted,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: c.outline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Text(
+                hasMotion ? 'Motion' : 'Reframe',
+                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: c.text),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: hasMotion ? () => _removeMotion(clip) : (hasFraming ? () => _resetFraming(clip) : null),
+                child: Text(hasMotion ? 'Remove motion' : 'Reset framing'),
+              ),
+            ],
+          ),
+          body,
+          if (!hasMotion)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => _addMotion(clip),
+                icon: const Icon(Icons.videocam_outlined, size: 16),
+                label: const Text('Add motion'),
+              ),
+            ),
         ],
       ),
     );

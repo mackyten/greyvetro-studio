@@ -23,7 +23,8 @@ Run each in its own terminal, backend first.
 | Tool | Version | Notes |
 |------|---------|-------|
 | .NET SDK | **10.0+** | `dotnet --version` |
-| Flutter | **3.44+** (Dart SDK ≥ 3.12) | `flutter --version` |
+| Flutter | **3.44+** (Dart SDK ≥ 3.12) | `flutter --version` (only needed for the desktop frontend) |
+| Node.js | **20+** | `node --version` (only needed for the web frontend) |
 | ElevenLabs API key | — | `sk_...` — [free tier](https://elevenlabs.io) works for premade voices |
 | Platform toolchain | Xcode (macOS) / Visual Studio with "Desktop development with C++" (Windows) | required to build the Flutter desktop shell |
 
@@ -87,6 +88,22 @@ flutter run -d windows
 The frontend expects the backend on `http://localhost:5050` (hardcoded in
 `frontend/lib/core/api_client.dart`). If you change the backend port, update it
 in `appsettings.json`, `launchSettings.json`, and `api_client.dart` together.
+
+### 4. (Alternative/optional) Terminal — frontend-web
+
+The React web frontend (`frontend-web/`) is a full-parity alternative to the
+Flutter desktop app — runs in any browser, no Flutter toolchain required.
+With the backend from step 2 still running:
+
+```bash
+cd frontend-web
+npm install
+npm run dev        # http://localhost:5173
+```
+
+Open [http://localhost:5173](http://localhost:5173). Like the Flutter app, it
+expects the backend on `http://localhost:5050`; the API base URL is set in
+`frontend-web/src/core/api.ts`.
 
 ---
 
