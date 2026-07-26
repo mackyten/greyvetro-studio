@@ -75,7 +75,7 @@ this file.
      `/opt/homebrew/bin` → `/usr/local/bin` → PATH, 503 with install hint if
      missing). Verified: 5-scene render → h264/aac 1080×1920@30, correct
      cover-crop + placeholder frames.
-   - 🚧 **Phase 5 — Timeline Editor** (in progress): replace the linear
+   - ✅ **Phase 5 — Timeline Editor**: replace the linear
      Storyboard→Render step with a CapCut-style multi-track non-linear editor
      (layered video/photo/audio, trim, crop, transform, transitions, Ken Burns,
      multi-track audio). Full corrected architecture plan — data model, backend
