@@ -81,8 +81,12 @@ export function modelShort(modelId?: string): string {
   return MODELS.find((m) => m.id === (modelId ?? DEFAULT_MODEL_ID))?.short ?? modelId ?? 'v2';
 }
 
-export function settingsSummary(s: VoiceSettings): string {
-  return `Stab ${s.stability.toFixed(2)} · Sim ${s.similarityBoost.toFixed(2)} · Style ${s.style.toFixed(2)} · Boost ${s.useSpeakerBoost ? 'on' : 'off'} · ${modelShort(s.modelId)}`;
+export function settingsSummary(s: Partial<VoiceSettings>): string {
+  const stability = s.stability ?? defaultSettings.stability;
+  const similarityBoost = s.similarityBoost ?? defaultSettings.similarityBoost;
+  const style = s.style ?? defaultSettings.style;
+  const useSpeakerBoost = s.useSpeakerBoost ?? defaultSettings.useSpeakerBoost;
+  return `Stab ${stability.toFixed(2)} · Sim ${similarityBoost.toFixed(2)} · Style ${style.toFixed(2)} · Boost ${useSpeakerBoost ? 'on' : 'off'} · ${modelShort(s.modelId)}`;
 }
 
 /** True when voice + model + the four setting values match (name-independent). */

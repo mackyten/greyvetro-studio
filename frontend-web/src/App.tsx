@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { getUsage } from './core/api';
 import { Icon } from './core/Icon';
-import type { Draft, GalleryItem, Preset, Usage } from './core/types';
+import { defaultSettings, type Draft, type GalleryItem, type Preset, type Usage } from './core/types';
 import { useTheme } from './core/useTheme';
 import { GalleryScreen } from './features/gallery/GalleryScreen';
 import { PresetsScreen } from './features/presets/PresetsScreen';
@@ -20,6 +21,18 @@ const TABS: { id: Tab; icon: string; label: string }[] = [
   { id: 'presets', icon: 'tune', label: 'Presets' },
 ];
 
+const TAB_PATH: Record<Tab, string> = {
+  studio: '/',
+  gallery: '/gallery',
+  storyboard: '/storyboard',
+  timeline: '/timeline',
+  presets: '/presets',
+};
+
+function tabFromPath(pathname: string): Tab {
+  return TABS.find((t) => TAB_PATH[t.id] === pathname)?.id ?? 'studio';
+}
+
 const PAGE_META: Record<Tab, { title: string; subtitle: string }> = {
   studio: { title: 'Studio', subtitle: 'Turn your script into speech with ElevenLabs voices.' },
   gallery: { title: 'Gallery', subtitle: 'Takes you chose to keep, saved locally in this browser.' },
@@ -36,7 +49,9 @@ const PAGE_META: Record<Tab, { title: string; subtitle: string }> = {
 
 export default function App() {
   const { theme, toggle } = useTheme();
-  const [tab, setTab] = useState<Tab>('studio');
+  const location = useLocation();
+  const navigate = useNavigate();
+  const tab = tabFromPath(location.pathname);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
 
@@ -55,15 +70,15 @@ export default function App() {
       voiceId: source.voiceId,
       voiceName: source.voiceName,
       settings: {
-        stability: source.stability,
-        similarityBoost: source.similarityBoost,
-        style: source.style,
-        useSpeakerBoost: source.useSpeakerBoost,
+        stability: source.stability ?? defaultSettings.stability,
+        similarityBoost: source.similarityBoost ?? defaultSettings.similarityBoost,
+        style: source.style ?? defaultSettings.style,
+        useSpeakerBoost: source.useSpeakerBoost ?? defaultSettings.useSpeakerBoost,
         modelId: source.modelId,
       },
       text,
     });
-    setTab('studio');
+    navigate(TAB_PATH.studio);
   };
 
   return (
@@ -74,13 +89,13 @@ export default function App() {
           <div className="name">Greyvetro</div>
         </div>
         {TABS.map((t) => (
-          <button
+          <Link
             key={t.id}
+            to={TAB_PATH[t.id]}
             className={`nav-item${tab === t.id ? ' active' : ''}`}
-            onClick={() => setTab(t.id)}
           >
             <Icon name={t.icon} /> {t.label}
-          </button>
+          </Link>
         ))}
         <div className="sidebar-footer">
           <UsageCard usage={usage} />
@@ -102,19 +117,26 @@ export default function App() {
           <h1>{PAGE_META[tab].title}</h1>
           <p>{PAGE_META[tab].subtitle}</p>
         </div>
-        {/* Composer stays mounted so its state survives tab switches. */}
+        {/* Composer stays mounted (outside <Routes>) so its state survives tab switches. */}
         <div style={{ display: tab === 'studio' ? undefined : 'none' }}>
           <Composer draft={draft} onGenerated={refreshUsage} />
         </div>
-        {tab === 'gallery' && (
-          <GalleryScreen
-            onEditRegenerate={(item) => loadIntoComposer(item, item.text)}
-            onUseSettings={(item) => loadIntoComposer(item)}
+        <Routes>
+          <Route path={TAB_PATH.studio} element={null} />
+          <Route
+            path={TAB_PATH.gallery}
+            element={
+              <GalleryScreen
+                onEditRegenerate={(item) => loadIntoComposer(item, item.text)}
+                onUseSettings={(item) => loadIntoComposer(item)}
+              />
+            }
           />
-        )}
-        {tab === 'storyboard' && <StoryboardScreen />}
-        {tab === 'timeline' && <TimelineScreen />}
-        {tab === 'presets' && <PresetsScreen onUse={(p) => loadIntoComposer(p)} />}
+          <Route path={TAB_PATH.storyboard} element={<StoryboardScreen />} />
+          <Route path={TAB_PATH.timeline} element={<TimelineScreen />} />
+          <Route path={TAB_PATH.presets} element={<PresetsScreen onUse={(p) => loadIntoComposer(p)} />} />
+          <Route path="*" element={<Navigate to={TAB_PATH.studio} replace />} />
+        </Routes>
       </main>
     </div>
   );

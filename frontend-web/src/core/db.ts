@@ -67,7 +67,11 @@ async function migrateFromOldDb(newDb: IDBDatabase): Promise<void> {
 
 export async function openDb(): Promise<IDBDatabase> {
   const db = await openRaw(DB_NAME, VERSION);
-  await migrateFromOldDb(db);
+  try {
+    await migrateFromOldDb(db);
+  } catch (e) {
+    console.error('[db] migrateFromOldDb failed, continuing without migration:', e);
+  }
   return db;
 }
 

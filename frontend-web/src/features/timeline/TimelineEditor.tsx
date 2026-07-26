@@ -261,9 +261,24 @@ export function TimelineEditor({
   const onDeleteRef = useRef(onDelete);
   onDeleteRef.current = onDelete;
 
+  // Selecting a clip doesn't otherwise move the playhead, but Split is gated on the playhead
+  // sitting inside the *selected* clip's own range (see canSplit below) — so without this, Split
+  // silently stays disabled for any clip the playhead isn't already parked in. That's easy to miss
+  // for the first (base) clip, which starts at t=0 and so often already contains a resting/leftover
+  // playhead position, but not for anything selected further down the timeline (e.g. a video clip
+  // appended after it) — reproduced live: selecting such a clip and hitting Split (button or `S`)
+  // was a silent no-op. Snap the playhead into the clip whenever it isn't already validly inside.
   const selectClip = (id: string) => {
     setSelectedTransition(null);
     setSelected(id);
+    const clip = timeline.tracks.flatMap((t) => t.clips).find((c) => c.id === id);
+    if (!clip) return;
+    const lo = clip.startTime + MIN_CLIP;
+    const hi = clip.startTime + clip.duration - MIN_CLIP;
+    if (lo < hi && (ph <= lo || ph >= hi)) {
+      stop();
+      setPlayhead(clip.startTime + clip.duration / 2);
+    }
   };
   const selectTransition = (id: string) => {
     setSelected(null);

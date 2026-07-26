@@ -61,18 +61,30 @@ export function GalleryScreen({ onEditRegenerate, onUseSettings }: Props) {
 
   useEffect(() => {
     let urls: string[] = [];
-    listProjects().then(setProjects);
-    listGallery().then(async (list) => {
-      setItems(list);
-      const map: Record<string, string> = {};
-      for (const item of list) {
-        const blob = await getGalleryAudio(item.id);
-        if (blob) map[item.id] = URL.createObjectURL(blob);
-      }
-      urls = Object.values(map);
-      setAudioUrls(map);
-    });
+    listProjects()
+      .then(setProjects)
+      .catch((e) => {
+        console.error('[Gallery] listProjects failed:', e);
+        toast('Could not load projects.', 'error');
+      });
+    listGallery()
+      .then(async (list) => {
+        setItems(list);
+        const map: Record<string, string> = {};
+        for (const item of list) {
+          const blob = await getGalleryAudio(item.id);
+          if (blob) map[item.id] = URL.createObjectURL(blob);
+        }
+        urls = Object.values(map);
+        setAudioUrls(map);
+      })
+      .catch((e) => {
+        console.error('[Gallery] listGallery failed:', e);
+        toast('Could not load your gallery.', 'error');
+        setItems([]);
+      });
     return () => urls.forEach((u) => URL.revokeObjectURL(u));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const activeProject = projects.find((p) => p.id === filter) ?? null;
@@ -83,7 +95,7 @@ export function GalleryScreen({ onEditRegenerate, onUseSettings }: Props) {
     return item.projectId === filter;
   });
 
-  const clipTitle = (item: GalleryItem) => item.title || item.text.slice(0, 32) || 'Untitled';
+  const clipTitle = (item: GalleryItem) => item.title || item.text?.slice(0, 32) || 'Untitled';
 
   const downloadName = (item: GalleryItem) => {
     const project = projects.find((p) => p.id === item.projectId);

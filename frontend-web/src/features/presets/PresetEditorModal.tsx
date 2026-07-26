@@ -1,7 +1,14 @@
 import { useState } from 'react';
 import { Icon } from '../../core/Icon';
 import { useToast } from '../../core/toast';
-import { DEFAULT_MODEL_ID, MODELS, type Preset, type Voice, type VoiceSettings } from '../../core/types';
+import {
+  defaultSettings,
+  DEFAULT_MODEL_ID,
+  MODELS,
+  type Preset,
+  type Voice,
+  type VoiceSettings,
+} from '../../core/types';
 import { VoicePickerModal } from '../voices/VoicePickerModal';
 import { findMatchingPreset, updatePreset } from './presetRepo';
 
@@ -42,10 +49,10 @@ export function PresetEditorModal({ preset, onSaved, onClose }: Props) {
   const [voiceId, setVoiceId] = useState(preset.voiceId);
   const [voiceName, setVoiceName] = useState(preset.voiceName);
   const [settings, setSettings] = useState<VoiceSettings>({
-    stability: preset.stability,
-    similarityBoost: preset.similarityBoost,
-    style: preset.style,
-    useSpeakerBoost: preset.useSpeakerBoost,
+    stability: preset.stability ?? defaultSettings.stability,
+    similarityBoost: preset.similarityBoost ?? defaultSettings.similarityBoost,
+    style: preset.style ?? defaultSettings.style,
+    useSpeakerBoost: preset.useSpeakerBoost ?? defaultSettings.useSpeakerBoost,
     modelId: preset.modelId ?? DEFAULT_MODEL_ID,
   });
   const [pickerOpen, setPickerOpen] = useState(false);

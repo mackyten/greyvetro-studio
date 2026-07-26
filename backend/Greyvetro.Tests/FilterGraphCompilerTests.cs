@@ -390,6 +390,69 @@ public class FilterGraphCompilerTests
         Assert.Contains("concat=n=2:v=1:a=0[vout]", Norm(plan.FilterComplex));
     }
 
+    [Fact]
+    public void Compile_TwoVideoClipsShareOneSource_EmitsAnInputPerClip()
+    {
+        // Mirrors Compile_TwoPhotoClipsShareOneSource_EmitsAnInputPerClip: splitting a video clip
+        // yields two clips referencing the same asset id but distinct inPoint/duration — the
+        // compiler must emit a separately input-seeked/trimmed input per clip (not dedupe by
+        // source), each keeping its own window into the source video.
+        var timeline = new Timeline
+        {
+            OutputWidth = 1080, OutputHeight = 1920, Fps = 30,
+            Tracks =
+            [
+                new Track
+                {
+                    Id = "photo", Type = TrackType.Photo, ZIndex = 0,
+                    Clips = [new Clip { Id = "p0", SourceId = "img", StartTime = 0, Duration = 3 }],
+                },
+                new Track
+                {
+                    Id = "video", Type = TrackType.Video, ZIndex = 0,
+                    Clips =
+                    [
+                        // Original clip was StartTime=3, Duration=4, InPoint=0.5, OutPoint=4.5;
+                        // split at local offset 2 (absolute t=5) into two 2s halves.
+                        new Clip { Id = "vc-a", SourceId = "vid", StartTime = 3, Duration = 2, InPoint = 0.5, OutPoint = 2.5 },
+                        new Clip { Id = "vc-b", SourceId = "vid", StartTime = 5, Duration = 2, InPoint = 2.5, OutPoint = 4.5 },
+                    ],
+                },
+                new Track
+                {
+                    Id = "audio", Type = TrackType.Audio, ZIndex = 0,
+                    Clips = [new Clip { Id = "a0", SourceId = "aud", StartTime = 0, Duration = 7 }],
+                },
+            ],
+            Assets =
+            [
+                new MediaAsset { Id = "img", Type = MediaType.Image },
+                new MediaAsset { Id = "vid", Type = MediaType.Video },
+                new MediaAsset { Id = "aud", Type = MediaType.Audio },
+            ],
+        };
+        var paths = new Dictionary<string, string>
+        {
+            ["img"] = "/tmp/i.jpg",
+            ["vid"] = "/tmp/v.mp4",
+            ["aud"] = "/tmp/a.mp3",
+        };
+
+        var plan = _compiler.Compile(timeline, paths);
+
+        Assert.Equal(
+            new[]
+            {
+                "-y",
+                "-loop", "1", "-t", "3", "-i", "/tmp/i.jpg",
+                "-ss", "0.5", "-t", "2", "-i", "/tmp/v.mp4",
+                "-ss", "2.5", "-t", "2", "-i", "/tmp/v.mp4",
+                "-i", "/tmp/a.mp3",
+            },
+            plan.InputArgs);
+        Assert.Contains("concat=n=3:v=1:a=0[vout]", Norm(plan.FilterComplex));
+    }
+
     // --- Multi-track audio (Phase 4) ---
 
     /// <summary>A photo, a plain voiceover, and a music track (30% gain, 2s fade-out).</summary>
