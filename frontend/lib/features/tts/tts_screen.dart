@@ -9,6 +9,9 @@ import '../../core/theme.dart';
 import '../gallery/gallery_repository.dart';
 import '../presets/preset.dart';
 import '../presets/preset_repository.dart';
+import '../projects/project_repository.dart';
+import '../projects/project_select.dart';
+import '../script/script_assist_modal.dart';
 import '../voices/voice_model.dart';
 import '../voices/voice_picker.dart';
 
@@ -17,6 +20,7 @@ class TtsScreen extends StatefulWidget {
   final AudioPlayer player;
   final GalleryRepository gallery;
   final PresetRepository presets;
+  final ProjectRepository projects;
 
   /// Called after a generation is saved to the gallery, so the gallery tab
   /// can refresh.
@@ -29,15 +33,20 @@ class TtsScreen extends StatefulWidget {
   /// Called after a preset is created here, so the Presets tab can refresh.
   final VoidCallback onPresetsChanged;
 
+  /// Called after a project is created here, so the Gallery tab can refresh.
+  final VoidCallback onProjectsChanged;
+
   const TtsScreen({
     super.key,
     required this.apiClient,
     required this.player,
     required this.gallery,
     required this.presets,
+    required this.projects,
     required this.onSavedToGallery,
     required this.onGenerated,
     required this.onPresetsChanged,
+    required this.onProjectsChanged,
   });
 
   @override
@@ -63,6 +72,9 @@ class TtsScreenState extends State<TtsScreen> {
 
   List<Preset> _presets = [];
 
+  final _projectSelectKey = GlobalKey<ProjectSelectState>();
+  String? _activeProjectId;
+
   @override
   void initState() {
     super.initState();
@@ -73,6 +85,12 @@ class TtsScreenState extends State<TtsScreen> {
   Future<void> reloadPresets() async {
     final presets = await widget.presets.load();
     if (mounted) setState(() => _presets = presets);
+  }
+
+  /// Refreshes the Project selector (e.g. after the Gallery tab creates,
+  /// renames, or deletes a project).
+  Future<void> reloadProjects() async {
+    await _projectSelectKey.currentState?.refresh();
   }
 
   @override
@@ -275,6 +293,7 @@ class TtsScreenState extends State<TtsScreen> {
         similarityBoost: _similarity,
         style: _style,
         useSpeakerBoost: _speakerBoost,
+        projectId: _activeProjectId,
       );
       setState(() => _saved = true);
       widget.onSavedToGallery();
@@ -292,6 +311,18 @@ class TtsScreenState extends State<TtsScreen> {
           ),
         );
       }
+    }
+  }
+
+  Future<void> _writeWithAi() async {
+    final script = await showScriptAssistModal(context, apiClient: widget.apiClient);
+    if (script != null) {
+      setState(() {
+        _textController.text = script;
+        _audioBytes = null;
+        _tempAudioPath = null;
+        _saved = false;
+      });
     }
   }
 
@@ -369,6 +400,15 @@ class TtsScreenState extends State<TtsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: ProjectSelect(
+            key: _projectSelectKey,
+            repository: widget.projects,
+            onChanged: (id) => _activeProjectId = id,
+          ),
+        ),
+        const SizedBox(height: 13),
         _voiceCard(),
         const SizedBox(height: 13),
         _settingsCard(),
@@ -455,10 +495,25 @@ class TtsScreenState extends State<TtsScreen> {
             ),
           Divider(height: 1, color: c.outline),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-            child: Text(
-              '$charCount characters',
-              style: AppFonts.monoStyle(size: 11.5, color: c.text3),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '$charCount characters',
+                    style: AppFonts.monoStyle(size: 11.5, color: c.text3),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: _writeWithAi,
+                  style: TextButton.styleFrom(
+                    foregroundColor: c.blueDeep,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
+                  icon: const Icon(Icons.auto_awesome_rounded, size: 16),
+                  label: const Text('Write with AI', style: TextStyle(fontWeight: FontWeight.w700)),
+                ),
+              ],
             ),
           ),
         ],

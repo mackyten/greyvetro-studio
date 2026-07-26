@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:path_provider/path_provider.dart';
+import '../stt/transcript_model.dart';
 import 'gallery_item.dart';
 
 /// Local persistence for generated audio: MP3 files plus a JSON index,
@@ -58,6 +59,7 @@ class GalleryRepository {
     required double similarityBoost,
     double style = 0.0,
     bool useSpeakerBoost = false,
+    String? projectId,
   }) async {
     final id = DateTime.now().millisecondsSinceEpoch.toString();
     final fileName = 'gv_$id.mp3';
@@ -75,6 +77,7 @@ class GalleryRepository {
       style: style,
       useSpeakerBoost: useSpeakerBoost,
       createdAt: DateTime.now(),
+      projectId: projectId,
     );
 
     final items = await load();
@@ -89,5 +92,40 @@ class GalleryRepository {
     final items = await load();
     items.removeWhere((e) => e.id == item.id);
     await _save(items);
+  }
+
+  Future<void> _update(String id, GalleryItem Function(GalleryItem) transform) async {
+    final items = await load();
+    final idx = items.indexWhere((e) => e.id == id);
+    if (idx == -1) return;
+    items[idx] = transform(items[idx]);
+    await _save(items);
+  }
+
+  /// Moves a clip into [projectId] (null = Unsorted).
+  Future<void> updateProjectId(String itemId, String? projectId) => _update(
+        itemId,
+        (item) => item.copyWith(projectId: projectId, clearProjectId: projectId == null),
+      );
+
+  /// Renames a clip's display title.
+  Future<void> updateTitle(String itemId, String title) =>
+      _update(itemId, (item) => item.copyWith(title: title));
+
+  /// Persists a clip's word-timestamped STT transcript.
+  Future<void> updateTranscript(String itemId, Transcript transcript) =>
+      _update(itemId, (item) => item.copyWith(transcript: transcript));
+
+  /// Moves every clip belonging to a deleted project into Unsorted.
+  Future<void> clearProjectId(String projectId) async {
+    final items = await load();
+    var changed = false;
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].projectId == projectId) {
+        items[i] = items[i].copyWith(clearProjectId: true);
+        changed = true;
+      }
+    }
+    if (changed) await _save(items);
   }
 }

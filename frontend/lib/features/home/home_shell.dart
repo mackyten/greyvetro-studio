@@ -7,6 +7,12 @@ import '../gallery/gallery_screen.dart';
 import '../presets/preset.dart';
 import '../presets/preset_repository.dart';
 import '../presets/presets_screen.dart';
+import '../projects/project_repository.dart';
+import '../storyboard/scene_repository.dart';
+import '../storyboard/storyboard_screen.dart';
+import '../timeline/timeline_asset_repository.dart';
+import '../timeline/timeline_repository.dart';
+import '../timeline/timeline_screen.dart';
 import '../tts/tts_screen.dart';
 import '../usage/usage_badge.dart';
 import '../voices/voice_model.dart';
@@ -26,10 +32,16 @@ class _HomeShellState extends State<HomeShell> {
   final _player = AudioPlayer();
   final _gallery = GalleryRepository();
   final _presets = PresetRepository();
+  final _projects = ProjectRepository();
+  final _scenes = SceneRepository();
+  final _timelines = TimelineRepository();
+  final _timelineAssets = TimelineAssetRepository();
 
   final _composerKey = GlobalKey<TtsScreenState>();
   final _galleryKey = GlobalKey<GalleryScreenState>();
   final _presetsKey = GlobalKey<PresetsScreenState>();
+  final _storyboardKey = GlobalKey<StoryboardScreenState>();
+  final _timelineKey = GlobalKey<TimelineScreenState>();
   final _usageKey = GlobalKey<UsageBadgeState>();
 
   int _index = 0;
@@ -42,6 +54,16 @@ class _HomeShellState extends State<HomeShell> {
   void _refreshPresetsEverywhere() {
     _presetsKey.currentState?.refresh();
     _composerKey.currentState?.reloadPresets();
+  }
+
+  /// Keep the composer's Project selector, the Gallery's chip row, the
+  /// Storyboard's project list, and the Timeline's project list in sync
+  /// after any project is created, renamed, or deleted anywhere in the app.
+  void _refreshProjectsEverywhere() {
+    _composerKey.currentState?.reloadProjects();
+    _galleryKey.currentState?.refresh();
+    _storyboardKey.currentState?.refreshProjects();
+    _timelineKey.currentState?.refreshProjects();
   }
 
   /// Apply a preset's voice + settings to the composer and switch to Create.
@@ -106,18 +128,27 @@ class _HomeShellState extends State<HomeShell> {
         player: _player,
         gallery: _gallery,
         presets: _presets,
-        onSavedToGallery: () => _galleryKey.currentState?.refresh(),
+        projects: _projects,
+        onSavedToGallery: () {
+          _galleryKey.currentState?.refresh();
+          _storyboardKey.currentState?.refreshClips();
+        },
         onGenerated: () => _usageKey.currentState?.refresh(),
         onPresetsChanged: _refreshPresetsEverywhere,
+        onProjectsChanged: _refreshProjectsEverywhere,
       ),
       GalleryScreen(
         key: _galleryKey,
         repository: _gallery,
         presets: _presets,
+        projects: _projects,
+        scenes: _scenes,
         player: _player,
+        apiClient: _apiClient,
         onEdit: _editFromGallery,
         onUseSettings: _useSettingsFromGallery,
         onPresetsChanged: _refreshPresetsEverywhere,
+        onProjectsChanged: _refreshProjectsEverywhere,
       ),
       PresetsScreen(
         key: _presetsKey,
@@ -126,6 +157,24 @@ class _HomeShellState extends State<HomeShell> {
         player: _player,
         onApply: _applyPreset,
         onPresetsChanged: _refreshPresetsEverywhere,
+      ),
+      StoryboardScreen(
+        key: _storyboardKey,
+        projects: _projects,
+        gallery: _gallery,
+        scenes: _scenes,
+        apiClient: _apiClient,
+        player: _player,
+      ),
+      TimelineScreen(
+        key: _timelineKey,
+        projects: _projects,
+        gallery: _gallery,
+        scenes: _scenes,
+        timelines: _timelines,
+        timelineAssets: _timelineAssets,
+        apiClient: _apiClient,
+        player: _player,
       ),
     ];
 
@@ -157,6 +206,14 @@ class _HomeShellState extends State<HomeShell> {
                     icon: Icons.bookmark_outline_rounded,
                     label: 'Presets',
                   ),
+                  SidebarDestination(
+                    icon: Icons.movie_outlined,
+                    label: 'Storyboard',
+                  ),
+                  SidebarDestination(
+                    icon: Icons.view_timeline_outlined,
+                    label: 'Timeline',
+                  ),
                 ],
               ),
               Expanded(
@@ -170,8 +227,12 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   void _select(int i) {
+    final previous = _index;
     setState(() => _index = i);
+    if (previous == 4 && i != 4) _timelineKey.currentState?.pausePlayback();
     if (i == 1) _galleryKey.currentState?.refresh();
     if (i == 2) _presetsKey.currentState?.refresh();
+    if (i == 3) _storyboardKey.currentState?.refreshClips();
+    if (i == 4) _timelineKey.currentState?.refreshProjects();
   }
 }

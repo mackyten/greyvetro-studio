@@ -58,6 +58,17 @@ class AudioPlayer {
     position.value = Duration.zero;
   }
 
+  /// Pauses the active track in place — unlike [stop], the position (and
+  /// [playing] path) are left as-is so [resume] can continue from here.
+  Future<void> pause() async {
+    await _player.pause();
+  }
+
+  /// Resumes a track paused via [pause] from its last position.
+  Future<void> resume() async {
+    await _player.resume();
+  }
+
   /// Jump the active track to [to].
   Future<void> seek(Duration to) async {
     await _player.seek(to);
