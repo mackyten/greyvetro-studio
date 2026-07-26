@@ -1,3 +1,4 @@
+import 'package:audioplayers/audioplayers.dart' as ap;
 import 'package:flutter/material.dart';
 import '../../core/api_client.dart';
 import '../../core/audio_player.dart';
@@ -28,10 +29,12 @@ class _VoicesScreenState extends State<VoicesScreen> {
   late Future<List<VoiceModel>> _voices;
   final _searchController = TextEditingController();
   final _favoritesRepo = FavoritesRepository();
+  final _previewPlayer = ap.AudioPlayer();
   String _query = '';
   String? _genderFilter;
   Set<String> _favorites = {};
   bool _favoritesOnly = false;
+  String? _previewingId;
 
   @override
   void initState() {
@@ -43,6 +46,25 @@ class _VoicesScreenState extends State<VoicesScreen> {
     _favoritesRepo.load().then((ids) {
       if (mounted) setState(() => _favorites = ids);
     });
+    _previewPlayer.onPlayerComplete.listen((_) {
+      if (mounted) setState(() => _previewingId = null);
+    });
+  }
+
+  /// Toggles preview playback of [v.previewUrl]; starting a new preview
+  /// stops whichever one is currently playing (one shared player instance,
+  /// independent of the app-wide gallery/composer [AudioPlayer]).
+  Future<void> _togglePreview(VoiceModel v) async {
+    final url = v.previewUrl;
+    if (url == null) return;
+    if (_previewingId == v.id) {
+      await _previewPlayer.stop();
+      setState(() => _previewingId = null);
+      return;
+    }
+    await _previewPlayer.stop();
+    setState(() => _previewingId = v.id);
+    await _previewPlayer.play(ap.UrlSource(url));
   }
 
   Future<void> _toggleFavorite(String voiceId) async {
@@ -60,6 +82,7 @@ class _VoicesScreenState extends State<VoicesScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _previewPlayer.dispose();
     super.dispose();
   }
 
@@ -350,6 +373,21 @@ class _VoicesScreenState extends State<VoicesScreen> {
     );
   }
 
+  Widget _previewButton(VoiceModel v) {
+    if (v.previewUrl == null) return const SizedBox.shrink();
+    final c = context.brand;
+    final isPlaying = _previewingId == v.id;
+    return IconButton(
+      icon: Icon(
+        isPlaying ? Icons.stop_rounded : Icons.play_arrow_rounded,
+        color: isPlaying ? c.blueDeep : c.text3,
+      ),
+      tooltip: isPlaying ? 'Stop preview' : 'Play preview',
+      onPressed: () => _togglePreview(v),
+      splashRadius: 20,
+    );
+  }
+
   Widget _sectionHeader(String title) {
     final c = context.brand;
     return Padding(
@@ -437,6 +475,7 @@ class _VoicesScreenState extends State<VoicesScreen> {
                   ),
                 ),
                 _favoriteButton(v),
+                _previewButton(v),
                 if (selected) ...[
                   const SizedBox(width: 4),
                   Icon(Icons.check_circle_rounded, color: c.blueDeep),
