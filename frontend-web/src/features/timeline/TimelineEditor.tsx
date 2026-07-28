@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Icon } from '../../core/Icon';
 import { VOICEOVER_ASSET_ID } from './model/seed';
 import {
@@ -93,6 +94,8 @@ export function TimelineEditor({
   imageUrls,
   videoUrls,
   audioUrl,
+  metaLine,
+  toolbarSlot,
   onChange,
   onChangeLive,
   onCommitDrag,
@@ -107,6 +110,12 @@ export function TimelineEditor({
    * lets the preview show real frame-accurate video instead of a static thumbnail. */
   videoUrls: Record<string, string>;
   audioUrl: string | null;
+  /** "Seeded from X · WxH @ FPSfps · ..." hint, rendered beside the preview. */
+  metaLine?: ReactNode;
+  /** DOM node (owned by TimelineScreen's toolbar row) to portal the undo/redo/zoom/Fit/Split
+   * controls into, so project/file actions and edit tools render as one toolbar with one divider
+   * instead of two stacked rows. Null until TimelineScreen's ref callback fires. */
+  toolbarSlot: HTMLDivElement | null;
   onChange: (next: Timeline) => void;
   /** One tick of a continuous slider drag: live preview update only, no history entry (see
    * useTimelineHistory's setLive) — paired with onCommitDrag on pointerup. */
@@ -128,6 +137,7 @@ export function TimelineEditor({
   const [snapGuide, setSnapGuide] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
   const [pxPerSecond, setPxPerSecond] = useState(DEFAULT_PPS);
+  const [previewExpanded, setPreviewExpanded] = useState(false);
   const dragId = useRef<string | null>(null);
   const audioElRef = useRef<HTMLAudioElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -470,36 +480,20 @@ export function TimelineEditor({
   for (let t = 0; t <= total + 0.001; t += step) ticks.push(t);
 
   return (
-    <div className="tl card" onPointerMove={onTrimPointerMove} onPointerUp={onTrimPointerUp}>
+    <div className="tl" onPointerMove={onTrimPointerMove} onPointerUp={onTrimPointerUp}>
       <audio ref={audioElRef} src={audioUrl ?? undefined} preload="auto" />
 
-      <div className="tl-topbar">
-        <div className="tl-tools-row">
-          <button className="chip" disabled={!canUndo} onClick={() => { stop(); onUndo(); }}>
-            <Icon name="undo" /> Undo
-          </button>
-          <button className="chip" disabled={!canRedo} onClick={() => { stop(); onRedo(); }}>
-            <Icon name="redo" /> Redo
-          </button>
-        </div>
-        <div className="tl-topbar-sep" />
-        <div className="tl-tools-row">
-          <button className="chip" onClick={() => zoomBy(1 / 1.4)}>
-            <Icon name="zoom_out" />
-          </button>
-          <span className="mono tl-zoom-label">{Math.round(pxPerSecond)}px/s</span>
-          <button className="chip" onClick={() => zoomBy(1.4)}>
-            <Icon name="zoom_in" />
-          </button>
-          <button className="chip" onClick={zoomToFit}>
-            Fit
-          </button>
-        </div>
-      </div>
-
-      <div className="tl-main">
-        <div className="tl-stage">
-          <div className="tl-preview" aria-hidden>
+      <div className="tl-columns">
+        <div className="tl-stage-row">
+          <div className={`tl-preview${previewExpanded ? ' expanded' : ''}`}>
+            <button
+              type="button"
+              className="tl-preview-expand"
+              title={previewExpanded ? 'Shrink preview' : 'Expand preview'}
+              onClick={() => setPreviewExpanded((v) => !v)}
+            >
+              <Icon name={previewExpanded ? 'close_fullscreen' : 'open_in_full'} />
+            </button>
             {previewClip && previewIsVideo && previewVideoUrl ? (
               <VideoFrame clip={previewClip} src={previewVideoUrl} ph={ph} playing={playing} style={cropStyle} />
             ) : previewClip && imageUrls[previewClip.sourceId] ? (
@@ -535,20 +529,24 @@ export function TimelineEditor({
             {activeCaption && <div className="tl-preview-caption">{activeCaption}</div>}
           </div>
 
-          <div className="tl-stage-controls">
-            <button className="chip" onClick={togglePlay}>
-              <Icon name={playing ? 'pause' : 'play_arrow'} /> {playing ? 'Pause' : 'Play'}
-            </button>
-            <div className="tl-tools-meta mono">
-              {ph.toFixed(1)}s / {total.toFixed(1)}s
-              {selectedClip && (selectedIsVisual || selMusic || selOverlay) && (
-                <> · selected {selectedClip.duration.toFixed(1)}s</>
-              )}
+          <div className="tl-meta-col">
+            <div className="tl-play-row">
+              <button className="tl-play-btn" onClick={togglePlay} title={playing ? 'Pause' : 'Play'}>
+                <Icon name={playing ? 'pause' : 'play_arrow'} />
+              </button>
+              <span className="tl-time mono">
+                {ph.toFixed(1)}s / {total.toFixed(1)}s
+                {selectedClip && (selectedIsVisual || selMusic || selOverlay) && (
+                  <> · selected {selectedClip.duration.toFixed(1)}s</>
+                )}
+              </span>
             </div>
+            {metaLine && <p className="tl-meta-hint">{metaLine}</p>}
           </div>
         </div>
 
         <div className="tl-inspector">
+          <h3>Inspector</h3>
           {selMusic ? (
             <div className="tl-audio-inspector">
               <label>
@@ -936,37 +934,73 @@ export function TimelineEditor({
               )}
             </div>
           ) : (
-            <div className="tl-tools-hint">
-              Click a clip to select · drag to reorder · drag an edge to trim (snaps to nearby
-              edges/playhead) · click the ruler to move the playhead, then Split (S) or Delete ·
-              Cmd/Ctrl+Z to undo. Select a scene to reframe (zoom/pan/tilt) or add Ken Burns motion;
-              click the boundary between two clips for a transition; add music or an overlay, select
-              it to adjust.
+            <div className="tl-inspector-empty">
+              <h4>Nothing selected</h4>
+              <p>
+                Click a clip to reframe it, adjust audio, or position an overlay. Click the
+                boundary between two clips to edit a transition.
+              </p>
             </div>
           )}
-        </div>
-      </div>
-
-      <div className="tl-tracks-panel">
-        <div className="tl-tools-row tl-tracks-header">
-          <button
-            className="chip"
-            disabled={!canSplit}
-            onClick={() => {
-              if (selected) {
-                stop();
-                onChange(splitClip(timeline, selected, localPlayhead));
-              }
-            }}
-          >
-            <Icon name="content_cut" /> Split
-          </button>
-          <button className="chip" disabled={!canDelete} onClick={onDelete}>
-            <Icon name="delete" /> {selMusic ? 'Remove music' : selOverlay ? 'Remove overlay' : 'Delete'}
-          </button>
+          {canDelete && !transitionClip && (
+            <button className="tl-inspector-delete" onClick={onDelete}>
+              <Icon name="delete" /> {selMusic ? 'Remove music' : selOverlay ? 'Remove overlay' : 'Delete clip'}
+            </button>
+          )}
         </div>
 
-        <div className="tl-body">
+        <div className="tl-tracks-panel">
+          {/* Portaled into TimelineScreen's toolbar row (after its divider) so project/file actions
+              and edit tools render as one continuous toolbar instead of two stacked rows. */}
+          {toolbarSlot &&
+            createPortal(
+              <>
+                <button
+                  className="tl-icon-btn"
+                  disabled={!canUndo}
+                  title="Undo (⌘Z)"
+                  onClick={() => { stop(); onUndo(); }}
+                >
+                  <Icon name="undo" />
+                </button>
+                <button
+                  className="tl-icon-btn"
+                  disabled={!canRedo}
+                  title="Redo (⇧⌘Z)"
+                  onClick={() => { stop(); onRedo(); }}
+                >
+                  <Icon name="redo" />
+                </button>
+                <div className="tl-sep" />
+                <button className="tl-icon-btn" title="Zoom out" onClick={() => zoomBy(1 / 1.4)}>
+                  <Icon name="zoom_out" />
+                </button>
+                <span className="mono tl-zoom-label">{Math.round(pxPerSecond)}px/s</span>
+                <button className="tl-icon-btn" title="Zoom in" onClick={() => zoomBy(1.4)}>
+                  <Icon name="zoom_in" />
+                </button>
+                <button className="tl-chip" onClick={zoomToFit}>
+                  Fit
+                </button>
+                <div className="tl-sep" />
+                <button
+                  className="tl-chip"
+                  disabled={!canSplit}
+                  title="Split (S)"
+                  onClick={() => {
+                    if (selected) {
+                      stop();
+                      onChange(splitClip(timeline, selected, localPlayhead));
+                    }
+                  }}
+                >
+                  <Icon name="content_cut" /> Split
+                </button>
+              </>,
+              toolbarSlot,
+            )}
+
+          <div className="tl-body">
         <div className="tl-labels">
           <div className="tl-ruler-spacer" />
           {tracks.map((track) => (
@@ -1090,6 +1124,7 @@ export function TimelineEditor({
         </div>
       </div>
       </div>
+      </div>
     </div>
   );
 }
@@ -1173,36 +1208,28 @@ function ClipBar({
   // overlay clip, which floats freely and only trims its end (like music).
   const base = isVisualType(track.type) && !overlay;
   const music = track.type === 'audio' && clip.sourceId !== VOICEOVER_ASSET_ID;
+  const voiceover = track.type === 'audio' && !music;
+  const caption = track.type === 'caption';
   const editable = base || overlay || music;
   const duration = trim ? trim.duration : clip.duration;
   const left = (clip.startTime / total) * 100;
   const width = (duration / total) * 100;
   const label = overlay
     ? 'Overlay'
-    : track.type === 'caption'
-      ? clip.text ?? ''
-      : track.type === 'audio'
-        ? music
-          ? 'Music'
-          : 'Voiceover'
-        : track.type === 'video'
-          ? `Video ${index + 1}`
-          : `Scene ${index + 1}`;
-  const labelIcon = overlay
-    ? 'image'
-    : track.type === 'audio'
-      ? music
-        ? 'music_note'
-        : null
+    : music
+      ? 'Music'
       : track.type === 'video'
-        ? 'movie'
-        : null;
+        ? `Video ${index + 1}`
+        : track.type === 'photo'
+          ? `Scene ${index + 1}`
+          : '';
+  const titleText = caption ? (clip.text ?? '') : voiceover ? 'Voiceover' : label;
 
   return (
     <div
       className={`tl-clip tl-clip-${track.type}${music ? ' tl-clip-music' : ''}${overlay ? ' tl-clip-overlay' : ''}${selected ? ' selected' : ''}${dropTarget ? ' drop-target' : ''}${editable ? ' editable' : ''}`}
       style={{ left: `${left}%`, width: `${width}%` }}
-      title={`${label} · ${fmt(clip.startTime)}–${fmt(clip.startTime + duration)}`}
+      title={`${titleText} · ${fmt(clip.startTime)}–${fmt(clip.startTime + duration)}`}
       draggable={base}
       onClick={() => editable && onSelect()}
       onDragStart={onDragStart}
@@ -1219,10 +1246,21 @@ function ClipBar({
         }
       }}
     >
-      {(base || overlay) && thumb && <img src={thumb} alt="" />}
-      <span className="tl-clip-label">
-        {labelIcon && <Icon name={labelIcon} />} {label}
-      </span>
+      {voiceover ? (
+        <span className="tl-clip-voiceover-label">Voiceover</span>
+      ) : caption ? (
+        <span className="tl-clip-quote">“{clip.text}”</span>
+      ) : (
+        <>
+          <div className="tl-clip-thumb">
+            {thumb ? <img src={thumb} alt="" /> : <span className="tl-clip-swatch" />}
+          </div>
+          <div className="tl-clip-text">
+            <span className="tl-clip-title">{label}</span>
+            <span className="tl-clip-duration mono">{duration.toFixed(1)}s</span>
+          </div>
+        </>
+      )}
       {/* Stills/video trim at both edges; music/overlay only at the end (anchored at t=0). */}
       {base && selected && (
         <span className="tl-trim tl-trim-start" onPointerDown={(e) => onTrimStart('start', e)} />

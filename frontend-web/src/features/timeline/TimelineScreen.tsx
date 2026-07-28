@@ -44,6 +44,9 @@ export function TimelineScreen() {
   const [videoUrls, setVideoUrls] = useState<Record<string, string>>({});
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  // Slot the editor's own undo/redo/zoom/split toolbar portals into, so project/file actions and
+  // edit tools render as one continuous toolbar row with a single divider (not two stacked rows).
+  const [toolbarSlot, setToolbarSlot] = useState<HTMLDivElement | null>(null);
   const audioRef = useRef<Blob | null>(null);
   const videoInput = useRef<HTMLInputElement | null>(null);
   const musicInput = useRef<HTMLInputElement | null>(null);
@@ -297,45 +300,48 @@ export function TimelineScreen() {
 
   if (projects.length === 0)
     return (
-      <div className="empty-state">
-        <div className="empty-icon">
-          <Icon name="theaters" />
+      <div className="tl-viewport">
+        <div className="tl-content">
+          <div className="empty-state">
+            <div className="empty-icon">
+              <Icon name="theaters" />
+            </div>
+            <h2>No projects yet</h2>
+            <p>The timeline is built from a project’s storyboard. Create a project and build its storyboard first.</p>
+          </div>
         </div>
-        <h2>No projects yet</h2>
-        <p>The timeline is built from a project’s storyboard. Create a project and build its storyboard first.</p>
       </div>
     );
 
   const ready = !!timeline && !!scenes && scenes.length > 0;
 
   return (
-    <>
-      <div className="chip-row">
+    <div className="tl-viewport">
+      <div className="tl-toolbar">
         {projects.map((p) => (
           <button
             key={p.id}
-            className={`chip${projectId === p.id ? ' active' : ''}`}
+            className={`tl-pill${projectId === p.id ? ' active' : ''}`}
             onClick={() => setProjectId(p.id)}
           >
             <Icon name="folder" /> {p.name}
           </button>
         ))}
-        <div className="chip-row-spacer" />
         {ready && (
           <>
-            <button className="chip" onClick={resync}>
+            <button className="tl-pill" onClick={resync}>
               <Icon name="sync" /> Re-sync
             </button>
-            <button className="chip" onClick={addVideo}>
-              <Icon name="movie" /> Add video
+            <button className="tl-pill" onClick={addVideo}>
+              <Icon name="add_circle" /> Add video
             </button>
-            <button className="chip" onClick={addMusicFile}>
-              <Icon name="music_note" /> Add music
+            <button className="tl-pill" onClick={addMusicFile}>
+              <Icon name="add_circle" /> Add music
             </button>
-            <button className="chip" onClick={addOverlay}>
-              <Icon name="image" /> Add overlay
+            <button className="tl-pill" onClick={addOverlay}>
+              <Icon name="add_circle" /> Add overlay
             </button>
-            <button className="chip" disabled={exporting} onClick={exportVideo}>
+            <button className="tl-pill-export" disabled={exporting} onClick={exportVideo}>
               {exporting ? (
                 'Rendering…'
               ) : (
@@ -346,32 +352,42 @@ export function TimelineScreen() {
             </button>
           </>
         )}
+        {ready && (
+          <>
+            <div className="tl-toolbar-divider" />
+            {/* TimelineEditor portals its undo/redo/zoom/Fit/Split controls in here — see toolbarSlot. */}
+            <div className="tl-toolbar-slot" ref={setToolbarSlot} />
+          </>
+        )}
       </div>
 
-      {scenes === null ? (
-        <div className="spinner" />
-      ) : scenes.length === 0 ? (
-        <div className="empty-state">
-          <div className="empty-icon">
-            <Icon name="movie" />
-          </div>
-          <h2>No storyboard yet</h2>
-          <p>Build this project’s storyboard in the Storyboard tab, then come back to see it on the timeline.</p>
-        </div>
-      ) : timeline ? (
-        <>
-          {voiceClip && (
-            <div className="vtag sb-meta">
-              Seeded from <strong>{clipTitle(voiceClip)}</strong> · {timeline.outputWidth}×
-              {timeline.outputHeight} @ {timeline.fps}fps · reorder / trim / split / delete clips,
-              add video, then export
+      <div className="tl-content">
+        {scenes === null ? (
+          <div className="spinner" />
+        ) : scenes.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-icon">
+              <Icon name="movie" />
             </div>
-          )}
+            <h2>No storyboard yet</h2>
+            <p>Build this project’s storyboard in the Storyboard tab, then come back to see it on the timeline.</p>
+          </div>
+        ) : timeline ? (
           <TimelineEditor
             timeline={timeline}
             imageUrls={imageUrls}
             videoUrls={videoUrls}
             audioUrl={audioUrl}
+            metaLine={
+              voiceClip ? (
+                <>
+                  Seeded from <strong>{clipTitle(voiceClip)}</strong> · {timeline.outputWidth}×
+                  {timeline.outputHeight} @ {timeline.fps}fps · click a clip to select, drag an edge
+                  to trim, click the ruler to scrub.
+                </>
+              ) : undefined
+            }
+            toolbarSlot={toolbarSlot}
             onChange={commit}
             onChangeLive={commitLiveEdit}
             onCommitDrag={commitDragEnd}
@@ -380,10 +396,10 @@ export function TimelineScreen() {
             onUndo={undo}
             onRedo={redo}
           />
-        </>
-      ) : (
-        <div className="spinner" />
-      )}
+        ) : (
+          <div className="spinner" />
+        )}
+      </div>
 
       <input
         ref={videoInput}
@@ -406,6 +422,6 @@ export function TimelineScreen() {
         style={{ display: 'none' }}
         onChange={onOverlayFile}
       />
-    </>
+    </div>
   );
 }
